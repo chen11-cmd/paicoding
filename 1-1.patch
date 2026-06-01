@@ -1,0 +1,634 @@
+diff --git a/paicoding-service/src/main/java/com/github/paicoding/forum/service/comment/service/impl/CommentWriteServiceImpl.java b/paicoding-service/src/main/java/com/github/paicoding/forum/service/comment/service/impl/CommentWriteServiceImpl.java
+index 21c877f1..b1440360 100644
+--- a/paicoding-service/src/main/java/com/github/paicoding/forum/service/comment/service/impl/CommentWriteServiceImpl.java
++++ b/paicoding-service/src/main/java/com/github/paicoding/forum/service/comment/service/impl/CommentWriteServiceImpl.java
+@@ -55,8 +55,12 @@ public class CommentWriteServiceImpl implements CommentWriteService {
+     @Override
+     @Transactional(rollbackFor = Exception.class)
+     public Long saveComment(CommentSaveReq commentSaveReq) {
+-        sensitiveService.contains(commentSaveReq.getCommentContent());
+-        // 保存评论
++        String content = StringUtils.trimToEmpty(commentSaveReq.getCommentContent());
++        if (StringUtils.isBlank(content)) {
++            throw ExceptionUtil.of(StatusEnum.ILLEGAL_ARGUMENTS_MIXED, "评论内容不能为空");
++        }
++        commentSaveReq.setCommentContent(content);
++        sensitiveService.contains(content);
+         CommentDO comment;
+         if (NumUtil.nullOrZero(commentSaveReq.getCommentId())) {
+             comment = addComment(commentSaveReq);
+@@ -67,38 +71,31 @@ public class CommentWriteServiceImpl implements CommentWriteService {
+     }
+ 
+     private CommentDO addComment(CommentSaveReq commentSaveReq) {
+-        // 0.获取父评论信息，校验是否存在
+         CommentDO parentComment = getParentCommentUser(commentSaveReq.getParentCommentId());
+         Long parentUser = parentComment == null ? null : parentComment.getUserId();
+ 
+-        // 1. 保存评论内容
+         CommentDO commentDO = CommentConverter.toDo(commentSaveReq);
+         Date now = new Date();
+         commentDO.setCreateTime(now);
+         commentDO.setUpdateTime(now);
+         commentDao.save(commentDO);
+ 
+-        // 2. 保存足迹信息 : 文章的已评信息 + 评论的已评信息
+         ArticleDO article = articleReadService.queryBasicArticle(commentSaveReq.getArticleId());
+         if (article == null) {
+             throw ExceptionUtil.of(StatusEnum.ARTICLE_NOT_EXISTS, commentSaveReq.getArticleId());
+         }
+         userFootWriteService.saveCommentFoot(commentDO, article.getUserId(), parentUser);
+ 
+-        // 3. 触发杠精机器人
+         this.aiBotTrigger(commentDO, parentComment);
+ 
+-        // 4. 发布添加/回复评论事件
+         SpringUtil.publishEvent(new NotifyMsgEvent<>(this, NotifyTypeEnum.COMMENT, commentDO));
+         if (NumUtil.upZero(parentUser)) {
+-            // 评论回复事件
+             SpringUtil.publishEvent(new NotifyMsgEvent<>(this, NotifyTypeEnum.REPLY, commentDO));
+         }
+         return commentDO;
+     }
+ 
+     private CommentDO updateComment(CommentSaveReq commentSaveReq) {
+-        // 更新评论
+         CommentDO commentDO = commentDao.getById(commentSaveReq.getCommentId());
+         if (commentDO == null) {
+             throw ExceptionUtil.of(StatusEnum.COMMENT_NOT_EXISTS, commentSaveReq.getCommentId());
+@@ -113,29 +110,24 @@ public class CommentWriteServiceImpl implements CommentWriteService {
+     @Transactional(rollbackFor = Exception.class)
+     public void deleteComment(Long commentId, Long userId) {
+         CommentDO commentDO = commentDao.getById(commentId);
+-        // 1.校验评论，是否越权，文章是否存在
+         if (commentDO == null) {
+             throw ExceptionUtil.of(StatusEnum.COMMENT_NOT_EXISTS, "评论ID=" + commentId);
+         }
+         if (!Objects.equals(commentDO.getUserId(), userId)) {
+             throw ExceptionUtil.of(StatusEnum.FORBID_ERROR_MIXED, "无权删除评论");
+         }
+-        // 获取文章信息
+         ArticleDO article = articleReadService.queryBasicArticle(commentDO.getArticleId());
+         if (article == null) {
+             throw ExceptionUtil.of(StatusEnum.ARTICLE_NOT_EXISTS, commentDO.getArticleId());
+         }
+ 
+-        // 2.删除评论、足迹
+         commentDO.setDeleted(YesOrNoEnum.YES.getCode());
+         commentDao.updateById(commentDO);
+         CommentDO parentComment = getParentCommentUser(commentDO.getParentCommentId());
+         userFootWriteService.removeCommentFoot(commentDO, article.getUserId(), parentComment == null ? null : parentComment.getUserId());
+ 
+-        // 3. 发布删除评论事件
+         SpringUtil.publishEvent(new NotifyMsgEvent<>(this, NotifyTypeEnum.DELETE_COMMENT, commentDO));
+         if (NumUtil.upZero(commentDO.getParentCommentId())) {
+-            // 评论
+             SpringUtil.publishEvent(new NotifyMsgEvent<>(this, NotifyTypeEnum.DELETE_REPLY, commentDO));
+         }
+     }
+@@ -165,7 +157,6 @@ public class CommentWriteServiceImpl implements CommentWriteService {
+         Long topCommentId = 0L;
+         AiBotEnum botEnum = null;
+         if (parent == null) {
+-            // 当前的评论就是顶级评论，根据回复内容是否有触发词来决定是否需要进行触发
+             botEnum = aiBots.triggerAiBotKeyWord(comment.getContent());
+             if (botEnum != null) {
+                 String tag = "@" + botEnum.getNickName();
+@@ -175,18 +166,14 @@ public class CommentWriteServiceImpl implements CommentWriteService {
+             topCommentId = comment.getId();
+         } else {
+             botEnum = aiBots.getAiBotByUserId(parent.getUserId());
+-            // 回复内容，根据回复的用户是否为机器人，来判定是否需要进行触发
+             if (botEnum != null) {
+                 trigger = true;
+             }
+             topCommentId = comment.getTopCommentId();
+         }
+ 
+-        // 评论中，@了机器人，那么开启评论对线模式
+         if (trigger) {
+             log.info("评论「{}」 开启了AI机器人:{}", comment, botEnum);
+-            // sourceBizId: 主要用于构建聊天对话，以顶级评论 + 用户id作为唯一标识
+-            // 避免出现一个顶级评论开启对线，后续的回复中有其他用户参与进来时，因为用户id不同，这样传递给大模型的上下文就不会出现交叉
+             AiBotEnum finalBotEnum = botEnum;
+             aiBots.trigger(botEnum, initQAUserPrompt(botEnum, comment)
+                     , "comment:" + topCommentId + "_" + comment.getUserId()
+diff --git a/paicoding-ui/src/main/resources/static/js/biz/ai-comment.js b/paicoding-ui/src/main/resources/static/js/biz/ai-comment.js
+index c0dad927..59fa189c 100644
+--- a/paicoding-ui/src/main/resources/static/js/biz/ai-comment.js
++++ b/paicoding-ui/src/main/resources/static/js/biz/ai-comment.js
+@@ -2,109 +2,108 @@
+ // 此文件专注于AI评论相关的特殊逻辑，通用评论输入框功能已在comment-input.js中实现
+ 
+ $(document).ready(function () {
+-    // 如果需要对特定的AI评论功能进行扩展，可以在这里添加
+-    // 例如：特殊的AI响应处理、AI评论样式调整等
+-
+-    // 示例：为AI生成的评论添加特殊标识
+     $('.ai-generated-comment').each(function () {
+-        // 可以在这里添加AI评论特有的处理逻辑
+     });
+ });
+-// AI机器人评论功能
+ 
+ $(document).ready(function () {
+-    // AI机器人选择器相关元素
+-    const $aiBotBtn = $('#aiBotBtn');
+-    const $aiBotDropdown = $('#aiBotDropdown');
+-    const $aiBotOptions = $('.ai-bot-option');
+-    const $commentTextarea = $('#commentContent');
+-    const $commentCount = $('#commentCount');
+-    const $commentBtn = $('#commentBtn');
+-    const $commentContainer = $('.comment-input-container');
+-
+-    // 点击机器人按钮显示/隐藏下拉菜单
+-    $aiBotBtn.on('click', function (e) {
+-        e.stopPropagation();
+-        $aiBotDropdown.toggleClass('show');
+-
+-        // 确保下拉菜单在视窗内显示
+-        if ($aiBotDropdown.hasClass('show')) {
+-            const buttonRect = $aiBotBtn[0].getBoundingClientRect();
+-            const dropdownRect = $aiBotDropdown[0].getBoundingClientRect();
+-            const viewportHeight = window.innerHeight;
+-
+-            // 重置位置样式
+-            $aiBotDropdown.css({
+-                'top': '100%',
+-                'bottom': 'auto'
+-            });
++    function getMainCommentElements() {
++        return {
++            $aiBotBtn: $('#aiBotBtn'),
++            $aiBotDropdown: $('#aiBotDropdown'),
++            $commentTextarea: $('#commentContent'),
++            $commentCount: $('#commentCount'),
++            $commentBtn: $('#commentBtn')
++        };
++    }
+ 
+-            // 如果下拉菜单超出视窗底部，则向上显示
+-            if (buttonRect.bottom + dropdownRect.height > viewportHeight) {
+-                $aiBotDropdown.css({
+-                    'top': 'auto',
+-                    'bottom': '100%'
+-                });
+-            }
++    function updateCommentCount() {
++        const elements = getMainCommentElements();
++        if (!elements.$commentTextarea.length) {
++            return;
+         }
+-    });
+ 
+-    // 点击页面其他地方隐藏下拉菜单
+-    $(document).on('click', function (e) {
+-        if (!$(e.target).closest('#aiBotSelector').length) {
+-            $aiBotDropdown.removeClass('show');
+-        }
+-    });
++        const currentValue = elements.$commentTextarea.val() || '';
++        const currentLength = currentValue.length;
++        const hasContent = $.trim(currentValue).length > 0;
+ 
+-    // 选择AI机器人选项
+-    $aiBotOptions.on('click', function () {
+-        const botType = $(this).data('bot');
+-        const botName = botType === 'hater' ? '杠精派' : '派聪明';
++        elements.$commentCount.text(currentLength);
++        elements.$commentBtn
++            .toggleClass('c-btn-disabled', !hasContent)
++            .prop('disabled', !hasContent);
++    }
+ 
+-        // 在文本框中添加@机器人标签
+-        const currentText = $commentTextarea.val();
+-        const tag = `@${botName} `;
++    $(document)
++        .off('click.aiCommentToggle', '#aiBotBtn')
++        .on('click.aiCommentToggle', '#aiBotBtn', function (e) {
++            e.stopPropagation();
+ 
+-        if (!currentText.includes(tag)) {
+-            $commentTextarea.val(tag + currentText);
+-            updateCommentCount();
+-        }
++            const elements = getMainCommentElements();
++            if (!elements.$aiBotDropdown.length || !elements.$aiBotBtn.length) {
++                return;
++            }
+ 
+-        // 隐藏下拉菜单
+-        $aiBotDropdown.removeClass('show');
++            elements.$aiBotDropdown.toggleClass('show');
++            if (!elements.$aiBotDropdown.hasClass('show')) {
++                return;
++            }
+ 
+-        // 聚焦到文本框
+-        $commentTextarea.focus();
+-    });
++            const buttonRect = elements.$aiBotBtn[0].getBoundingClientRect();
++            const dropdownRect = elements.$aiBotDropdown[0].getBoundingClientRect();
++            const viewportHeight = window.innerHeight;
+ 
+-    // 实时更新字符计数
+-    $commentTextarea.on('input', function () {
+-        updateCommentCount();
+-    });
++            elements.$aiBotDropdown.css({
++                top: '100%',
++                bottom: 'auto'
++            });
+ 
+-    // 当输入框获得焦点时，更新容器样式
+-    $commentTextarea.on('focus', function () {
+-        $commentContainer.addClass('focus');
+-    });
++            if (buttonRect.bottom + dropdownRect.height > viewportHeight) {
++                elements.$aiBotDropdown.css({
++                    top: 'auto',
++                    bottom: '100%'
++                });
++            }
++        })
++        .off('click.aiCommentOption', '#aiBotDropdown .ai-bot-option')
++        .on('click.aiCommentOption', '#aiBotDropdown .ai-bot-option', function () {
++            const elements = getMainCommentElements();
++            if (!elements.$commentTextarea.length) {
++                return;
++            }
+ 
+-    // 当输入框失去焦点时，更新容器样式
+-    $commentTextarea.on('blur', function () {
+-        $commentContainer.removeClass('focus');
+-    });
++            const botType = $(this).data('bot');
++            const botName = botType === 'hater' ? '杠精派' : '派聪明';
++            const currentText = elements.$commentTextarea.val() || '';
++            const tag = `@${botName} `;
+ 
+-    // 更新字符计数函数
+-    function updateCommentCount() {
+-        const currentLength = $commentTextarea.val().length;
+-        $commentCount.text(currentLength);
+-
+-        // 根据是否有内容启用/禁用评论按钮
+-        if (currentLength > 0) {
+-            $commentBtn.removeClass('c-btn-disabled').prop('disabled', false);
+-        } else {
+-            $commentBtn.addClass('c-btn-disabled').prop('disabled', true);
+-        }
+-    }
++            if (currentText.indexOf(tag) === -1) {
++                elements.$commentTextarea.val(tag + currentText);
++                updateCommentCount();
++            }
++
++            elements.$aiBotDropdown.removeClass('show');
++            elements.$commentTextarea.focus();
++        })
++        .off('input.aiComment', '#commentContent')
++        .on('input.aiComment', '#commentContent', function () {
++            updateCommentCount();
++        })
++        .off('focus.aiComment', '#commentContent')
++        .on('focus.aiComment', '#commentContent', function () {
++            $(this).closest('.comment-input-container').addClass('focus');
++        })
++        .off('blur.aiComment', '#commentContent')
++        .on('blur.aiComment', '#commentContent', function () {
++            $(this).closest('.comment-input-container').removeClass('focus');
++        });
++
++    $(document)
++        .off('click.aiCommentOutside')
++        .on('click.aiCommentOutside', function (e) {
++            if (!$(e.target).closest('#aiBotSelector').length) {
++                $('#aiBotDropdown').removeClass('show');
++            }
++        });
+ 
+-    // 初始化字符计数
+     updateCommentCount();
+-});
+\ No newline at end of file
++});
+diff --git a/paicoding-ui/src/main/resources/templates/views/article-detail/index.html b/paicoding-ui/src/main/resources/templates/views/article-detail/index.html
+index 5551f578..65ed3e8d 100644
+--- a/paicoding-ui/src/main/resources/templates/views/article-detail/index.html
++++ b/paicoding-ui/src/main/resources/templates/views/article-detail/index.html
+@@ -354,75 +354,145 @@
+         }
+       }
+ 
+-      function bindCommentInputEvent() {
+-        // 直接评论
+-        const commentContent = $("#commentContent")
++      function getTrimmedCommentValue(value) {
++        return $.trim(value || "")
++      }
++
++      function syncMainCommentButtonState() {
+         const commentBtn = $("#commentBtn")
+-        commentBtn.click(function () {
+-          const content = commentContent.val()
+-          if (!content || content.length > 512) {
+-            toastr.error("评论内容长度要求在[1,512]之间")
+-            return
+-          }
+-          const submittedContent = content.trim()
+-          // 提交评论
+-          const params = {
+-            // 文章id
+-            articleId: articleId,
+-            // 评论内容
+-            commentContent: content,
+-          }
+-          post("/comment/api/post", params, function (data) {
+-            commented = true
+-            commentCount += 1
+-            syncCommentFloatBtn()
+-            // 使用 Ajax 的方式，直接更新评论列表
+-            document.getElementById("commentDiv").innerHTML = data
+-            bindCommentInputEvent()
+-            window.requestAnimationFrame(function () {
+-              scrollToLatestTopComment(submittedContent)
+-            })
+-          })
+-        });
+-
+-        // 直接评论监听
+-        $(document).on("input propertychange", "#commentContent", function () {
+-          const val = $(this).val()
+-          console.log(val)
+-          if (val) {
+-            $("#commentBtn").attr("disabled", false).removeClass("c-btn-disabled")
+-          } else {
+-            $("#commentBtn").attr("disabled", true).addClass("c-btn-disabled")
+-          }
+-        })
++        if (!commentBtn.length) {
++          return
++        }
++        const hasContent = getTrimmedCommentValue($("#commentContent").val()).length > 0
++        commentBtn.prop("disabled", !hasContent).toggleClass("c-btn-disabled", !hasContent)
+       }
+ 
+-      // 回复
+-      $(document).on("click", ".reply-comment", function () {
+-        const currentDom = $(this)
+-        if (currentDom.attr("data-toggle") === "modal") {
++      function syncReplyButtonState(currentDom) {
++        const replyBtn = currentDom.siblings(".hf-pl")
++        if (!replyBtn.length) {
+           return
+         }
+-        createComment(currentDom)
+-      })
++        const hasContent = getTrimmedCommentValue(currentDom.val()).length > 0
++        replyBtn.prop("disabled", !hasContent).toggleClass("hf-pl--disabled", !hasContent)
++      }
+ 
+-      // 回复编辑
+-      $(document).on("click", ".hf-pl", function () {
+-        const currentDom = $(this)
+-        commentSubmit(currentDom)
+-      })
++      function toggleMainCommentButton(currentDom, submitting) {
++        if (!currentDom.length) {
++          return
++        }
++        if (submitting) {
++          currentDom.prop("disabled", true).addClass("c-btn-disabled")
++          return
++        }
++        const hasContent = getTrimmedCommentValue($("#commentContent").val()).length > 0
++        currentDom.prop("disabled", !hasContent).toggleClass("c-btn-disabled", !hasContent)
++      }
+ 
+-      $(document).on("input propertychange", ".hf-input", function () {
+-        const currentDom = $(this)
+-        listenCommentBtn(currentDom)
+-      })
++      function toggleReplyButton(currentDom, submitting) {
++        if (!currentDom.length) {
++          return
++        }
++        if (submitting) {
++          currentDom.prop("disabled", true).addClass("hf-pl--disabled")
++          return
++        }
++        const hasContent = getTrimmedCommentValue(currentDom.siblings(".hf-input").val()).length > 0
++        currentDom.prop("disabled", !hasContent).toggleClass("hf-pl--disabled", !hasContent)
++      }
++
++      function submitCommentRequest(params, onSuccess, onComplete) {
++        $.ajax({
++          method: "POST",
++          url: "/comment/api/post",
++          contentType: "application/json",
++          data: JSON.stringify(params),
++          success: function (data) {
++            if (!data || !data.status || data.status.code !== 0) {
++              toastr.error(data && data.status ? data.status.msg : "评论失败")
++              return
++            }
++            if (onSuccess) {
++              onSuccess(data.result)
++            }
++          },
++          error: function () {
++            toastr.error("出现bug了，热心反馈下吧!")
++          },
++          complete: function () {
++            if (onComplete) {
++              onComplete()
++            }
++          },
++        })
++      }
++
++      function refreshCommentList(content, callback) {
++        document.getElementById("commentDiv").innerHTML = content
++        if (typeof window.autoExpandSingleReplyWraps === "function") {
++          window.autoExpandSingleReplyWraps(document.getElementById("commentDiv"))
++        }
++        syncMainCommentButtonState()
++        if (callback) {
++          callback()
++        }
++      }
++
++      function bindCommentInputEvent() {
++        $(document)
++          .off("click.articleComment", "#commentBtn")
++          .on("click.articleComment", "#commentBtn", function () {
++            const currentDom = $(this)
++            const submittedContent = getTrimmedCommentValue($("#commentContent").val())
++            if (!submittedContent || submittedContent.length > 512) {
++              toastr.error("评论内容长度要求在[1,512]之间")
++              syncMainCommentButtonState()
++              return
++            }
++
++            toggleMainCommentButton(currentDom, true)
++            submitCommentRequest({
++              articleId: articleId,
++              commentContent: submittedContent,
++            }, function (data) {
++              commented = true
++              commentCount += 1
++              syncCommentFloatBtn()
++              refreshCommentList(data, function () {
++                window.requestAnimationFrame(function () {
++                  scrollToLatestTopComment(submittedContent)
++                })
++              })
++            }, function () {
++              if ($.contains(document, currentDom[0])) {
++                toggleMainCommentButton(currentDom, false)
++              }
++            })
++          })
++          .off("input.articleComment propertychange.articleComment", "#commentContent")
++          .on("input.articleComment propertychange.articleComment", "#commentContent", function () {
++            syncMainCommentButtonState()
++          })
++          .off("click.articleComment", ".reply-comment")
++          .on("click.articleComment", ".reply-comment", function () {
++            const currentDom = $(this)
++            if (currentDom.attr("data-toggle") === "modal") {
++              return
++            }
++            createComment(currentDom)
++          })
++          .off("click.articleComment", ".hf-pl")
++          .on("click.articleComment", ".hf-pl", function () {
++            commentSubmit($(this))
++          })
++          .off("input.articleComment propertychange.articleComment", ".hf-input")
++          .on("input.articleComment propertychange.articleComment", ".hf-input", function () {
++            syncReplyButtonState($(this))
++          })
++      }
+ 
+-      // 点击回复创建评论
+       const createComment = function (currentDom) {
+-        // 移除其他回复
+         $(".hf-con").remove()
+ 
+-        // 获取回复人的名字
+         var fhName = currentDom.attr("data-reply-nickname") ||
+                 currentDom
+                         .parents(".common-item-content")
+@@ -430,7 +500,6 @@
+                         .first()
+                         .text()
+         fhName = fhName ? fhName.trim() : ""
+-        //回复@
+         var fhN = "回复@" + fhName + "："
+         var fhHtml =
+                 '<div class="hf-con pull-left"><textarea class="hf-input" placeholder="" "></textarea><button disabled class="hf-pl hf-pl--disabled">评论</button></div>'
+@@ -443,55 +512,48 @@
+ 
+           currentWrap.find(".common-item-content").append(fhHtml)
+           currentDom.removeClass("hf-con-block")
+-          //input框自动聚焦
+           currentDom
+                   .parents(".common-item-content")
+                   .find(".hf-input")
+                   .val("")
+                   .focus()
+                   .attr("placeholder", fhN)
+-          // 取消回复
+           currentDom.find(".reply-comment-text").hide()
+           currentDom.find(".reply-comment-text-none").show()
+-        } else {
+-          currentDom.addClass("hf-con-block")
+-          currentDom.parents(".common-item-content").find(".pull-left").remove()
+-          // 回复
+-          currentDom.find(".reply-comment-text").show()
+-          currentDom.find(".reply-comment-text-none").hide()
++          return
+         }
++
++        currentDom.addClass("hf-con-block")
++        currentDom.parents(".common-item-content").find(".pull-left").remove()
++        currentDom.find(".reply-comment-text").show()
++        currentDom.find(".reply-comment-text-none").hide()
+       }
+ 
+-      // 评论编辑&提交
+       const commentSubmit = function (currentDom) {
+         const replyContent = currentDom.siblings(".hf-input")
+         const replyBtn = currentDom
+                 .parents(".common-item-content")
+                 .find(".reply-comment")
++        const submittedContent = getTrimmedCommentValue(replyContent.val())
+ 
+-        if (!replyContent.val()) {
++        if (!submittedContent) {
+           toastr.error("回复内容不能为空")
++          syncReplyButtonState(replyContent)
+           return
+         }
+-        // 提交评论
+-        const params = {
+-          // 文章id
++
++        toggleReplyButton(currentDom, true)
++        submitCommentRequest({
+           articleId: $("#postsTitle").attr("data-id"),
+-          // 评论内容
+-          commentContent: replyContent.val(),
+-          // 回复的评论id
++          commentContent: submittedContent,
+           parentCommentId: replyBtn.attr("data-reply-id"),
+-          // 回复的一级评论id
+           topCommentId: replyBtn.attr("data-reply-top"),
+-        }
+-        post("/comment/api/post", params, function (data) {
++        }, function (data) {
+           commented = true
+           commentCount += 1
+           syncCommentFloatBtn()
+-          // 对于侧边栏的评论回复
+           if (replyBtn.attr("data-reply-top")) {
+-            // 刷新侧边的引用评论内容
+-            showQuoteCommentWithComments(replyBtn.attr("data-reply-top"));
++            showQuoteCommentWithComments(replyBtn.attr("data-reply-top"))
+           }
+ 
+           const currentWrap = currentDom.closest(".expand-replies-wrap").length
+@@ -509,23 +571,16 @@
+             return
+           }
+ 
+-          // 降级兜底：整块刷新评论区
+-          document.getElementById("commentDiv").innerHTML = data
+-          bindCommentInputEvent();
++          refreshCommentList(data)
++        }, function () {
++          if ($.contains(document, currentDom[0])) {
++            toggleReplyButton(currentDom, false)
++          }
+         })
+       }
+ 
+-      // 监听按钮
+-      const listenCommentBtn = function (currentDom) {
+-        if (!currentDom.val()) {
+-          $(".hf-pl").attr("disabled", true).addClass("hf-pl--disabled")
+-        } else {
+-          $(".hf-pl").attr("disabled", false).removeClass("hf-pl--disabled")
+-        }
+-      }
+-
+-
+-      bindCommentInputEvent();
++      bindCommentInputEvent()
++      syncMainCommentButtonState()
+ 
+       function copyAndClose() {
+         // 复制短链
