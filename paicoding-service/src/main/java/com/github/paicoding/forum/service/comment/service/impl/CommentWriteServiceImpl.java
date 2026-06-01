@@ -55,6 +55,10 @@ public class CommentWriteServiceImpl implements CommentWriteService {
     @Override
     @Transactional(rollbackFor = Exception.class)
     public Long saveComment(CommentSaveReq commentSaveReq) {
+        String content = commentSaveReq.getCommentContent();
+        if (content == null || content.trim().isEmpty()) {
+            throw ExceptionUtil.of(StatusEnum.ILLEGAL_ARGUMENTS_MIXED, "评论内容不能为空");
+        }
         sensitiveService.contains(commentSaveReq.getCommentContent());
         // 保存评论
         CommentDO comment;

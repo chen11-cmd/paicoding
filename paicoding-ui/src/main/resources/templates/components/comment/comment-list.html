@@ -355,8 +355,9 @@
         var replyBtn = currentDom.closest('.common-item-content').find('.reply-comment').first();
         var targetTopCommentId = replyBtn.attr('data-reply-top');
         var currentWrap = currentDom.closest('.expand-replies-wrap');
+        var trimmedContent = replyContent.val() ? replyContent.val().trim() : '';
 
-        if (!replyContent.val()) {
+        if (!trimmedContent) {
           toastr.error('回复内容不能为空');
           return;
         }
