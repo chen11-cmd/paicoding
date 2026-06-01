@@ -341,7 +341,8 @@
         input.off('input.dynamicReply propertychange.dynamicReply')
                 .on('input.dynamicReply propertychange.dynamicReply', function() {
                   var submitBtn = $(this).siblings('.hf-pl');
-                  if ($(this).val()) {
+                  var val = $(this).val();
+                  if (val && val.trim()) {
                     submitBtn.attr('disabled', false).removeClass('hf-pl--disabled');
                   } else {
                     submitBtn.attr('disabled', true).addClass('hf-pl--disabled');
@@ -356,7 +357,9 @@
         var targetTopCommentId = replyBtn.attr('data-reply-top');
         var currentWrap = currentDom.closest('.expand-replies-wrap');
 
-        if (!replyContent.val()) {
+        var val = replyContent.val();
+        var submittedContent = val ? val.trim() : "";
+        if (!submittedContent) {
           toastr.error('回复内容不能为空');
           return;
         }
@@ -364,7 +367,7 @@
         currentDom.attr('disabled', true).addClass('hf-pl--disabled');
         var params = {
           articleId: $('#postsTitle').attr('data-id'),
-          commentContent: replyContent.val(),
+          commentContent: submittedContent,
           parentCommentId: replyBtn.attr('data-reply-id'),
           topCommentId: replyBtn.attr('data-reply-top')
         };

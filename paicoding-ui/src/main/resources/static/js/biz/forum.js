@@ -1,4 +1,4 @@
-const post = function (path, data, callback) {
+const post = function (path, data, callback, errCallback) {
   $.ajax({
     method: "POST",
     url: path,
@@ -10,12 +10,14 @@ const post = function (path, data, callback) {
         // 出现了
         console.log("出现了异常:", data.status.msg)
         toastr.error(data.status.msg)
+        if (errCallback) errCallback(data)
       } else if (callback) {
         callback(data.result)
       }
     },
     error: function (data) {
       toastr.error(data, "出现bug了，热心反馈下吧!")
+      if (errCallback) errCallback(data)
     },
   })
 }
@@ -642,7 +644,7 @@ const checkFileSize = function (file) {
 }
 
 
-function getCookie(name){<!-- -->
+function getCookie(name){
   var strcookie = document.cookie;//获取cookie字符串
   var arrcookie = strcookie.split("; ");//分割
   //遍历匹配

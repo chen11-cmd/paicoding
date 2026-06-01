@@ -96,9 +96,14 @@ public class CommentRestController {
             return ResVo.fail(StatusEnum.ILLEGAL_ARGUMENTS_MIXED, "文章不存在!");
         }
 
+        String content = req.getCommentContent();
+        if (org.apache.commons.lang3.StringUtils.isBlank(content)) {
+            return ResVo.fail(StatusEnum.ILLEGAL_ARGUMENTS_MIXED, "评论内容不能为空");
+        }
+
         // 保存评论
         req.setUserId(ReqInfoContext.getReqInfo().getUserId());
-        req.setCommentContent(StringEscapeUtils.escapeHtml3(req.getCommentContent()));
+        req.setCommentContent(StringEscapeUtils.escapeHtml3(content));
         commentWriteService.saveComment(req);
 
         // 返回新的评论信息，用于实时更新详情也的评论列表
@@ -135,9 +140,14 @@ public class CommentRestController {
             return ResVo.fail(StatusEnum.ILLEGAL_ARGUMENTS_MIXED, "文章不存在!");
         }
 
+        String contentStr = req.getCommentContent();
+        if (org.apache.commons.lang3.StringUtils.isBlank(contentStr)) {
+            return ResVo.fail(StatusEnum.ILLEGAL_ARGUMENTS_MIXED, "评论内容不能为空");
+        }
+
         // 保存评论
         req.setUserId(ReqInfoContext.getReqInfo().getUserId());
-        req.setCommentContent(StringEscapeUtils.escapeHtml3(req.getCommentContent()));
+        req.setCommentContent(StringEscapeUtils.escapeHtml3(contentStr));
         Long commentId = commentWriteService.saveComment(req);
         TopCommentDTO comments = commentReadService.queryTopComments(commentId);
         String content = templateEngineHelper.render("components/comment/comment-highlight", comments);

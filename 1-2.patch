@@ -1,0 +1,330 @@
+diff --git a/paicoding-ui/src/main/resources/static/js/biz/forum.js b/paicoding-ui/src/main/resources/static/js/biz/forum.js
+index 36f6f610..dbc8acdb 100644
+--- a/paicoding-ui/src/main/resources/static/js/biz/forum.js
++++ b/paicoding-ui/src/main/resources/static/js/biz/forum.js
+@@ -1,4 +1,4 @@
+-const post = function (path, data, callback) {
++const post = function (path, data, callback, errCallback) {
+   $.ajax({
+     method: "POST",
+     url: path,
+@@ -10,12 +10,14 @@ const post = function (path, data, callback) {
+         // 出现了
+         console.log("出现了异常:", data.status.msg)
+         toastr.error(data.status.msg)
++        if (errCallback) errCallback(data)
+       } else if (callback) {
+         callback(data.result)
+       }
+     },
+     error: function (data) {
+       toastr.error(data, "出现bug了，热心反馈下吧!")
++      if (errCallback) errCallback(data)
+     },
+   })
+ }
+@@ -642,7 +644,7 @@ const checkFileSize = function (file) {
+ }
+ 
+ 
+-function getCookie(name){<!-- -->
++function getCookie(name){
+   var strcookie = document.cookie;//获取cookie字符串
+   var arrcookie = strcookie.split("; ");//分割
+   //遍历匹配
+diff --git a/paicoding-ui/src/main/resources/templates/components/comment/comment-list.html b/paicoding-ui/src/main/resources/templates/components/comment/comment-list.html
+index bf0b4067..f59e8661 100644
+--- a/paicoding-ui/src/main/resources/templates/components/comment/comment-list.html
++++ b/paicoding-ui/src/main/resources/templates/components/comment/comment-list.html
+@@ -341,7 +341,8 @@
+         input.off('input.dynamicReply propertychange.dynamicReply')
+                 .on('input.dynamicReply propertychange.dynamicReply', function() {
+                   var submitBtn = $(this).siblings('.hf-pl');
+-                  if ($(this).val()) {
++                  var val = $(this).val();
++                  if (val && val.trim()) {
+                     submitBtn.attr('disabled', false).removeClass('hf-pl--disabled');
+                   } else {
+                     submitBtn.attr('disabled', true).addClass('hf-pl--disabled');
+@@ -356,7 +357,9 @@
+         var targetTopCommentId = replyBtn.attr('data-reply-top');
+         var currentWrap = currentDom.closest('.expand-replies-wrap');
+ 
+-        if (!replyContent.val()) {
++        var val = replyContent.val();
++        var submittedContent = val ? val.trim() : "";
++        if (!submittedContent) {
+           toastr.error('回复内容不能为空');
+           return;
+         }
+@@ -364,7 +367,7 @@
+         currentDom.attr('disabled', true).addClass('hf-pl--disabled');
+         var params = {
+           articleId: $('#postsTitle').attr('data-id'),
+-          commentContent: replyContent.val(),
++          commentContent: submittedContent,
+           parentCommentId: replyBtn.attr('data-reply-id'),
+           topCommentId: replyBtn.attr('data-reply-top')
+         };
+diff --git a/paicoding-ui/src/main/resources/templates/views/article-detail/index.html b/paicoding-ui/src/main/resources/templates/views/article-detail/index.html
+index 5551f578..83c1d431 100644
+--- a/paicoding-ui/src/main/resources/templates/views/article-detail/index.html
++++ b/paicoding-ui/src/main/resources/templates/views/article-detail/index.html
+@@ -358,19 +358,21 @@
+         // 直接评论
+         const commentContent = $("#commentContent")
+         const commentBtn = $("#commentBtn")
+-        commentBtn.click(function () {
++        commentBtn.off("click").click(function () {
+           const content = commentContent.val()
+-          if (!content || content.length > 512) {
++          const submittedContent = content ? content.trim() : ""
++          if (!submittedContent || submittedContent.length > 512) {
+             toastr.error("评论内容长度要求在[1,512]之间")
+             return
+           }
+-          const submittedContent = content.trim()
++          
++          commentBtn.attr("disabled", true).addClass("c-btn-disabled")
+           // 提交评论
+           const params = {
+             // 文章id
+             articleId: articleId,
+             // 评论内容
+-            commentContent: content,
++            commentContent: submittedContent,
+           }
+           post("/comment/api/post", params, function (data) {
+             commented = true
+@@ -382,14 +384,15 @@
+             window.requestAnimationFrame(function () {
+               scrollToLatestTopComment(submittedContent)
+             })
++          }, function() {
++            commentBtn.attr("disabled", false).removeClass("c-btn-disabled")
+           })
+         });
+ 
+         // 直接评论监听
+-        $(document).on("input propertychange", "#commentContent", function () {
++        $(document).off("input propertychange", "#commentContent").on("input propertychange", "#commentContent", function () {
+           const val = $(this).val()
+-          console.log(val)
+-          if (val) {
++          if (val && val.trim()) {
+             $("#commentBtn").attr("disabled", false).removeClass("c-btn-disabled")
+           } else {
+             $("#commentBtn").attr("disabled", true).addClass("c-btn-disabled")
+@@ -398,7 +401,7 @@
+       }
+ 
+       // 回复
+-      $(document).on("click", ".reply-comment", function () {
++      $(document).off("click", ".reply-comment").on("click", ".reply-comment", function () {
+         const currentDom = $(this)
+         if (currentDom.attr("data-toggle") === "modal") {
+           return
+@@ -407,12 +410,12 @@
+       })
+ 
+       // 回复编辑
+-      $(document).on("click", ".hf-pl", function () {
++      $(document).off("click", ".hf-pl").on("click", ".hf-pl", function () {
+         const currentDom = $(this)
+         commentSubmit(currentDom)
+       })
+ 
+-      $(document).on("input propertychange", ".hf-input", function () {
++      $(document).off("input propertychange", ".hf-input").on("input propertychange", ".hf-input", function () {
+         const currentDom = $(this)
+         listenCommentBtn(currentDom)
+       })
+@@ -469,16 +472,20 @@
+                 .parents(".common-item-content")
+                 .find(".reply-comment")
+ 
+-        if (!replyContent.val()) {
++        const content = replyContent.val()
++        const submittedContent = content ? content.trim() : ""
++        if (!submittedContent) {
+           toastr.error("回复内容不能为空")
+           return
+         }
++        
++        currentDom.attr("disabled", true).addClass("hf-pl--disabled")
+         // 提交评论
+         const params = {
+           // 文章id
+           articleId: $("#postsTitle").attr("data-id"),
+           // 评论内容
+-          commentContent: replyContent.val(),
++          commentContent: submittedContent,
+           // 回复的评论id
+           parentCommentId: replyBtn.attr("data-reply-id"),
+           // 回复的一级评论id
+@@ -512,12 +519,15 @@
+           // 降级兜底：整块刷新评论区
+           document.getElementById("commentDiv").innerHTML = data
+           bindCommentInputEvent();
++        }, function() {
++          currentDom.attr("disabled", false).removeClass("hf-pl--disabled")
+         })
+       }
+ 
+       // 监听按钮
+       const listenCommentBtn = function (currentDom) {
+-        if (!currentDom.val()) {
++        const val = currentDom.val()
++        if (!val || !val.trim()) {
+           $(".hf-pl").attr("disabled", true).addClass("hf-pl--disabled")
+         } else {
+           $(".hf-pl").attr("disabled", false).removeClass("hf-pl--disabled")
+diff --git a/paicoding-ui/src/main/resources/templates/views/column-detail/index.html b/paicoding-ui/src/main/resources/templates/views/column-detail/index.html
+index 700fb2ce..40b6f9b9 100644
+--- a/paicoding-ui/src/main/resources/templates/views/column-detail/index.html
++++ b/paicoding-ui/src/main/resources/templates/views/column-detail/index.html
+@@ -526,19 +526,21 @@
+       // 直接评论
+       const commentContent = $("#commentContent")
+       const commentBtn = $("#commentBtn")
+-      commentBtn.click(function () {
++      commentBtn.off("click").click(function () {
+         const content = commentContent.val()
+-        if (!content || content.length > 512) {
++        const submittedContent = content ? content.trim() : ""
++        if (!submittedContent || submittedContent.length > 512) {
+           toastr.error("评论内容长度要求在[1,512]之间")
+           return
+         }
+-        const submittedContent = content.trim()
++        
++        commentBtn.attr("disabled", true).addClass("c-btn-disabled")
+         // 提交评论
+         const params = {
+           // 文章id
+           articleId: articleId,
+           // 评论内容
+-          commentContent: content,
++          commentContent: submittedContent,
+         }
+         post("/comment/api/post", params, function (data) {
+           commented = true
+@@ -550,14 +552,15 @@
+           window.requestAnimationFrame(function() {
+             scrollToLatestTopComment(submittedContent)
+           })
++        }, function() {
++          commentBtn.attr("disabled", false).removeClass("c-btn-disabled")
+         })
+       })
+ 
+       // 直接评论监听
+-      $(document).on("input propertychange", "#commentContent", function () {
++      $(document).off("input propertychange", "#commentContent").on("input propertychange", "#commentContent", function () {
+         const val = $(this).val()
+-        console.log(val)
+-        if (val) {
++        if (val && val.trim()) {
+           $("#commentBtn").attr("disabled", false).removeClass("c-btn-disabled")
+         } else {
+           $("#commentBtn").attr("disabled", true).addClass("c-btn-disabled")
+@@ -566,7 +569,7 @@
+     }
+ 
+     // 回复
+-    $(document).on("click", ".reply-comment", function () {
++    $(document).off("click", ".reply-comment").on("click", ".reply-comment", function () {
+       const currentDom = $(this)
+       if (currentDom.attr("data-toggle") === "modal") {
+         return
+@@ -575,12 +578,12 @@
+     })
+ 
+     // 回复编辑
+-    $(document).on("click", ".hf-pl", function () {
++    $(document).off("click", ".hf-pl").on("click", ".hf-pl", function () {
+       const currentDom = $(this)
+       commentSubmit(currentDom)
+     })
+ 
+-    $(document).on("input propertychange", ".hf-input", function () {
++    $(document).off("input propertychange", ".hf-input").on("input propertychange", ".hf-input", function () {
+       const currentDom = $(this)
+       listenCommentBtn(currentDom)
+     })
+@@ -637,16 +640,20 @@
+         .parents(".common-item-content")
+         .find(".reply-comment")
+ 
+-      if (!replyContent.val()) {
++      const content = replyContent.val()
++      const submittedContent = content ? content.trim() : ""
++      if (!submittedContent) {
+         toastr.error("回复内容不能为空")
+         return
+       }
++      
++      currentDom.attr("disabled", true).addClass("hf-pl--disabled")
+       // 提交评论
+       const params = {
+         // 文章id
+         articleId: $("#postsTitle").attr("data-id"),
+         // 评论内容
+-        commentContent: replyContent.val(),
++        commentContent: submittedContent,
+         // 回复的评论id
+         parentCommentId: replyBtn.attr("data-reply-id"),
+         // 回复的一级评论id
+@@ -679,12 +686,15 @@
+ 
+         document.getElementById("commentDiv").innerHTML = data
+         bindCommentInputEvent()
++      }, function() {
++        currentDom.attr("disabled", false).removeClass("hf-pl--disabled")
+       })
+     }
+ 
+     // 监听按钮
+     const listenCommentBtn = function (currentDom) {
+-      if (!currentDom.val()) {
++      const val = currentDom.val()
++      if (!val || !val.trim()) {
+         $(".hf-pl").attr("disabled", true).addClass("hf-pl--disabled")
+       } else {
+         $(".hf-pl").attr("disabled", false).removeClass("hf-pl--disabled")
+diff --git a/paicoding-web/src/main/java/com/github/paicoding/forum/web/front/comment/rest/CommentRestController.java b/paicoding-web/src/main/java/com/github/paicoding/forum/web/front/comment/rest/CommentRestController.java
+index acda8360..ed3f9b69 100644
+--- a/paicoding-web/src/main/java/com/github/paicoding/forum/web/front/comment/rest/CommentRestController.java
++++ b/paicoding-web/src/main/java/com/github/paicoding/forum/web/front/comment/rest/CommentRestController.java
+@@ -96,9 +96,14 @@ public class CommentRestController {
+             return ResVo.fail(StatusEnum.ILLEGAL_ARGUMENTS_MIXED, "文章不存在!");
+         }
+ 
++        String content = req.getCommentContent();
++        if (org.apache.commons.lang3.StringUtils.isBlank(content)) {
++            return ResVo.fail(StatusEnum.ILLEGAL_ARGUMENTS_MIXED, "评论内容不能为空");
++        }
++
+         // 保存评论
+         req.setUserId(ReqInfoContext.getReqInfo().getUserId());
+-        req.setCommentContent(StringEscapeUtils.escapeHtml3(req.getCommentContent()));
++        req.setCommentContent(StringEscapeUtils.escapeHtml3(content));
+         commentWriteService.saveComment(req);
+ 
+         // 返回新的评论信息，用于实时更新详情也的评论列表
+@@ -135,9 +140,14 @@ public class CommentRestController {
+             return ResVo.fail(StatusEnum.ILLEGAL_ARGUMENTS_MIXED, "文章不存在!");
+         }
+ 
++        String contentStr = req.getCommentContent();
++        if (org.apache.commons.lang3.StringUtils.isBlank(contentStr)) {
++            return ResVo.fail(StatusEnum.ILLEGAL_ARGUMENTS_MIXED, "评论内容不能为空");
++        }
++
+         // 保存评论
+         req.setUserId(ReqInfoContext.getReqInfo().getUserId());
+-        req.setCommentContent(StringEscapeUtils.escapeHtml3(req.getCommentContent()));
++        req.setCommentContent(StringEscapeUtils.escapeHtml3(contentStr));
+         Long commentId = commentWriteService.saveComment(req);
+         TopCommentDTO comments = commentReadService.queryTopComments(commentId);
+         String content = templateEngineHelper.render("components/comment/comment-highlight", comments);
