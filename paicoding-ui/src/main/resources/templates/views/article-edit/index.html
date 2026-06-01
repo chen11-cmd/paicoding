@@ -269,7 +269,7 @@
                   class="form-textarea-limit"
                   th:text="${vo.article != null ?  #strings.length(vo.article.summary) + '/256': '0/256'}"
           >
-                0/128
+                0/256
               </span>
           <button
                   type="button"
@@ -312,9 +312,9 @@
           cover =[[${ vo.article != null ? vo.article.cover : '' }]],
           showSaveBtnFlagByTitle = false;
 
-  // 校验限制，如标题长度[5,120], 内容必须>=6，简介最多 256字符
+  // 校验限制，如标题长度[5,120], 内容必须>=6，简介字数限制[6,256]
   const titleMin = 5, titleMax = 120,
-          contentMin = 6, summaryMax = 256;
+          contentMin = 6, summaryMin = 6, summaryMax = 256;
 
   if (vo && vo.article) {
     articleId = vo.article.articleId;
@@ -963,24 +963,26 @@
 
   // 提取简介
   $(".btn-getdistill").on("click", function () {
-    // 获取文章内容
-    let content = checkContent().trim();
-    // 准备提交到后端
-    if (content.length > 600) {
-      content = content.substring(0, 600)
+    const content = checkContent("extract");
+    if (!content) {
+      return;
+    }
+
+    let requestContent = content.trim();
+    if (requestContent.length > 600) {
+      requestContent = requestContent.substring(0, 600)
     }
 
     const params = {
-      content: content,
+      content: requestContent,
     };
 
     post("/article/api/generateSummary", params, function (data) {
       console.log("提取后的简介:", data)
       const $summary = $("#summary");
       $summary.val(data);
-      // 滚动到底部
       $summary.scrollTop($summary.prop('scrollHeight'));
-      $('.form-textarea-limit').text(data.length + '/' + summaryMax)
+      initSummary();
     });
 
   });
@@ -1000,15 +1002,30 @@
   }
 
   // 检查内容的长度
-  function checkContent() {
+  function checkContent(scene) {
     const content = simplemde.getMarkdown();
+    const trimmedContent = content.trim();
 
-    if (content.length <= contentMin) {
-      toastr.error("文章内容太短了！");
+    if (!trimmedContent.length) {
+      toastr.error(scene === "extract" ? "请先输入正文内容后再提取简介！" : "文章内容不能为空！");
+      return false;
+    }
+
+    if (trimmedContent.length < contentMin) {
+      toastr.error(scene === "extract" ? "正文至少需要6个字符后才能提取简介！" : "文章内容太短了！");
       return false;
     }
 
     return content;
+  }
+
+  function checkSummary() {
+    const summary = $("#summary").val();
+    if (summary.length < summaryMin || summary.length > summaryMax) {
+      toastr.error("简介字数应该在6-256之间哦!");
+      return false;
+    }
+    return summary;
   }
 
   //  发表文章
@@ -1049,9 +1066,8 @@
       return;
     }
 
-    const summary = $("#summary").val()
-    if (summary.length < contentMin || summary.length > summaryMax) {
-      toastr.error("简介字数应该在6-128之间哦!");
+    const summary = checkSummary();
+    if (!summary) {
       return;
     }
 
@@ -1131,11 +1147,13 @@
 
   // 检查输入简介摘要的长度
   function initSummary() {
-    let len = $('#summary').val().length
-    if (len > summaryMax) {
-      len = summaryMax;
+    const $summary = $('#summary');
+    let summary = $summary.val();
+    if (summary.length > summaryMax) {
+      summary = summary.substring(0, summaryMax);
+      $summary.val(summary);
     }
-    $('.form-textarea-limit').text(len + '/' + summaryMax)
+    $('.form-textarea-limit').text(summary.length + '/' + summaryMax)
   }
 
   // 控制文章分类的选择
