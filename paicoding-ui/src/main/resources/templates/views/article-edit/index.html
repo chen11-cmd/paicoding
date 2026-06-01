@@ -269,7 +269,7 @@
                   class="form-textarea-limit"
                   th:text="${vo.article != null ?  #strings.length(vo.article.summary) + '/256': '0/256'}"
           >
-                0/128
+                0/256
               </span>
           <button
                   type="button"
@@ -963,9 +963,12 @@
 
   // 提取简介
   $(".btn-getdistill").on("click", function () {
-    // 获取文章内容
-    let content = checkContent().trim();
-    // 准备提交到后端
+    var content = checkContent();
+    if (!content) {
+      toastr.error("正文内容不足，无法提取简介！");
+      return;
+    }
+    content = content.trim();
     if (content.length > 600) {
       content = content.substring(0, 600)
     }
@@ -978,7 +981,6 @@
       console.log("提取后的简介:", data)
       const $summary = $("#summary");
       $summary.val(data);
-      // 滚动到底部
       $summary.scrollTop($summary.prop('scrollHeight'));
       $('.form-textarea-limit').text(data.length + '/' + summaryMax)
     });
@@ -1051,7 +1053,7 @@
 
     const summary = $("#summary").val()
     if (summary.length < contentMin || summary.length > summaryMax) {
-      toastr.error("简介字数应该在6-128之间哦!");
+      toastr.error("简介字数应该在6-256之间哦!");
       return;
     }
 
