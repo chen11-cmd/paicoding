@@ -1,0 +1,57 @@
+diff --git a/paicoding-ui/src/main/resources/templates/views/article-edit/index.html b/paicoding-ui/src/main/resources/templates/views/article-edit/index.html
+index 2369a8bb..81a3023a 100644
+--- a/paicoding-ui/src/main/resources/templates/views/article-edit/index.html
++++ b/paicoding-ui/src/main/resources/templates/views/article-edit/index.html
+@@ -269,7 +269,7 @@
+                   class="form-textarea-limit"
+                   th:text="${vo.article != null ?  #strings.length(vo.article.summary) + '/256': '0/256'}"
+           >
+-                0/128
++                0/256
+               </span>
+           <button
+                   type="button"
+@@ -963,24 +963,26 @@
+ 
+   // 提取简介
+   $(".btn-getdistill").on("click", function () {
+-    // 获取文章内容
+-    let content = checkContent().trim();
+-    // 准备提交到后端
+-    if (content.length > 600) {
+-      content = content.substring(0, 600)
++    const content = checkContent();
++    if (!content) {
++      return;
++    }
++
++    let trimmed = content.trim();
++    if (trimmed.length > 600) {
++      trimmed = trimmed.substring(0, 600)
+     }
+ 
+     const params = {
+-      content: content,
++      content: trimmed,
+     };
+ 
+     post("/article/api/generateSummary", params, function (data) {
+       console.log("提取后的简介:", data)
+       const $summary = $("#summary");
+       $summary.val(data);
+-      // 滚动到底部
+       $summary.scrollTop($summary.prop('scrollHeight'));
+-      $('.form-textarea-limit').text(data.length + '/' + summaryMax)
++      initSummary();
+     });
+ 
+   });
+@@ -1051,7 +1053,7 @@
+ 
+     const summary = $("#summary").val()
+     if (summary.length < contentMin || summary.length > summaryMax) {
+-      toastr.error("简介字数应该在6-128之间哦!");
++      toastr.error("简介字数应该在6-256之间哦!");
+       return;
+     }
+ 
