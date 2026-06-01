@@ -1,0 +1,61 @@
+diff --git a/paicoding-ui/src/main/resources/templates/views/article-edit/index.html b/paicoding-ui/src/main/resources/templates/views/article-edit/index.html
+index 2369a8bb..d5b59c0e 100644
+--- a/paicoding-ui/src/main/resources/templates/views/article-edit/index.html
++++ b/paicoding-ui/src/main/resources/templates/views/article-edit/index.html
+@@ -269,7 +269,7 @@
+                   class="form-textarea-limit"
+                   th:text="${vo.article != null ?  #strings.length(vo.article.summary) + '/256': '0/256'}"
+           >
+-                0/128
++                0/256
+               </span>
+           <button
+                   type="button"
+@@ -312,9 +312,9 @@
+           cover =[[${ vo.article != null ? vo.article.cover : '' }]],
+           showSaveBtnFlagByTitle = false;
+ 
+-  // 校验限制，如标题长度[5,120], 内容必须>=6，简介最多 256字符
++  // 校验限制，如标题长度[5,120], 内容必须>=6，简介[6,256]字符
+   const titleMin = 5, titleMax = 120,
+-          contentMin = 6, summaryMax = 256;
++          contentMin = 6, summaryMin = 6, summaryMax = 256;
+ 
+   if (vo && vo.article) {
+     articleId = vo.article.articleId;
+@@ -963,8 +963,12 @@
+ 
+   // 提取简介
+   $(".btn-getdistill").on("click", function () {
+-    // 获取文章内容
+-    let content = checkContent().trim();
++    // 获取文章内容，先校验
++    let content = checkContent();
++    if (!content) {
++      return;
++    }
++    content = content.trim();
+     // 准备提交到后端
+     if (content.length > 600) {
+       content = content.substring(0, 600)
+@@ -980,7 +984,8 @@
+       $summary.val(data);
+       // 滚动到底部
+       $summary.scrollTop($summary.prop('scrollHeight'));
+-      $('.form-textarea-limit').text(data.length + '/' + summaryMax)
++      // 同步更新字数显示
++      initSummary();
+     });
+ 
+   });
+@@ -1050,8 +1055,8 @@
+     }
+ 
+     const summary = $("#summary").val()
+-    if (summary.length < contentMin || summary.length > summaryMax) {
+-      toastr.error("简介字数应该在6-128之间哦!");
++    if (summary.length < summaryMin || summary.length > summaryMax) {
++      toastr.error("简介字数应该在6-256之间哦!");
+       return;
+     }
+ 
