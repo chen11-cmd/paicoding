@@ -24,6 +24,7 @@ import com.github.paicoding.forum.web.front.article.vo.ArticleDetailVo;
 import com.github.paicoding.forum.web.front.comment.vo.CommentPageVo;
 import com.github.paicoding.forum.web.front.comment.vo.HighlightCommentVo;
 import org.apache.commons.lang3.StringEscapeUtils;
+import org.apache.commons.lang3.StringUtils;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -96,6 +97,10 @@ public class CommentRestController {
             return ResVo.fail(StatusEnum.ILLEGAL_ARGUMENTS_MIXED, "文章不存在!");
         }
 
+        if (StringUtils.isBlank(req.getCommentContent())) {
+            return ResVo.fail(StatusEnum.ILLEGAL_ARGUMENTS_MIXED, "评论内容不能为空");
+        }
+
         // 保存评论
         req.setUserId(ReqInfoContext.getReqInfo().getUserId());
         req.setCommentContent(StringEscapeUtils.escapeHtml3(req.getCommentContent()));
@@ -133,6 +138,10 @@ public class CommentRestController {
         ArticleDO article = articleReadService.queryBasicArticle(req.getArticleId());
         if (article == null) {
             return ResVo.fail(StatusEnum.ILLEGAL_ARGUMENTS_MIXED, "文章不存在!");
+        }
+
+        if (StringUtils.isBlank(req.getCommentContent())) {
+            return ResVo.fail(StatusEnum.ILLEGAL_ARGUMENTS_MIXED, "评论内容不能为空");
         }
 
         // 保存评论

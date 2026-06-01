@@ -1,5 +1,5 @@
 const post = function (path, data, callback) {
-  $.ajax({
+  return $.ajax({
     method: "POST",
     url: path,
     contentType: "application/json",

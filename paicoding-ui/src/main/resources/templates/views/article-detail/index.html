@@ -355,47 +355,46 @@
       }
 
       function bindCommentInputEvent() {
-        // 直接评论
         const commentContent = $("#commentContent")
         const commentBtn = $("#commentBtn")
-        commentBtn.click(function () {
+        commentBtn.off("click").on("click", function () {
           const content = commentContent.val()
-          if (!content || content.length > 512) {
+          const trimmedContent = content ? content.trim() : ""
+          if (!trimmedContent || trimmedContent.length > 512) {
             toastr.error("评论内容长度要求在[1,512]之间")
             return
           }
-          const submittedContent = content.trim()
-          // 提交评论
+          commentBtn.prop("disabled", true).addClass("c-btn-disabled")
           const params = {
-            // 文章id
             articleId: articleId,
-            // 评论内容
-            commentContent: content,
+            commentContent: trimmedContent,
           }
           post("/comment/api/post", params, function (data) {
             commented = true
             commentCount += 1
             syncCommentFloatBtn()
-            // 使用 Ajax 的方式，直接更新评论列表
             document.getElementById("commentDiv").innerHTML = data
             bindCommentInputEvent()
             window.requestAnimationFrame(function () {
-              scrollToLatestTopComment(submittedContent)
+              scrollToLatestTopComment(trimmedContent)
             })
+          }).always(function () {
+            const currentTextarea = $("#commentContent")
+            if (currentTextarea.val() && currentTextarea.val().trim()) {
+              $("#commentBtn").prop("disabled", false).removeClass("c-btn-disabled")
+            }
           })
-        });
-
-        // 直接评论监听
-        $(document).on("input propertychange", "#commentContent", function () {
-          const val = $(this).val()
-          console.log(val)
-          if (val) {
-            $("#commentBtn").attr("disabled", false).removeClass("c-btn-disabled")
-          } else {
-            $("#commentBtn").attr("disabled", true).addClass("c-btn-disabled")
-          }
         })
       }
+
+      $(document).off("input propertychange", "#commentContent").on("input propertychange", "#commentContent", function () {
+        const val = $(this).val()
+        if (val && val.trim()) {
+          $("#commentBtn").attr("disabled", false).removeClass("c-btn-disabled")
+        } else {
+          $("#commentBtn").attr("disabled", true).addClass("c-btn-disabled")
+        }
+      })
 
       // 回复
       $(document).on("click", ".reply-comment", function () {
@@ -469,28 +468,24 @@
                 .parents(".common-item-content")
                 .find(".reply-comment")
 
-        if (!replyContent.val()) {
+        const trimmedContent = replyContent.val() ? replyContent.val().trim() : ""
+        if (!trimmedContent) {
           toastr.error("回复内容不能为空")
           return
         }
-        // 提交评论
+        const hfPlBtn = currentDom
+        hfPlBtn.prop("disabled", true).addClass("hf-pl--disabled")
         const params = {
-          // 文章id
           articleId: $("#postsTitle").attr("data-id"),
-          // 评论内容
-          commentContent: replyContent.val(),
-          // 回复的评论id
+          commentContent: trimmedContent,
           parentCommentId: replyBtn.attr("data-reply-id"),
-          // 回复的一级评论id
           topCommentId: replyBtn.attr("data-reply-top"),
         }
         post("/comment/api/post", params, function (data) {
           commented = true
           commentCount += 1
           syncCommentFloatBtn()
-          // 对于侧边栏的评论回复
           if (replyBtn.attr("data-reply-top")) {
-            // 刷新侧边的引用评论内容
             showQuoteCommentWithComments(replyBtn.attr("data-reply-top"));
           }
 
@@ -509,15 +504,17 @@
             return
           }
 
-          // 降级兜底：整块刷新评论区
           document.getElementById("commentDiv").innerHTML = data
           bindCommentInputEvent();
+        }).always(function () {
+          hfPlBtn.prop("disabled", false).removeClass("hf-pl--disabled")
         })
       }
 
       // 监听按钮
       const listenCommentBtn = function (currentDom) {
-        if (!currentDom.val()) {
+        const val = currentDom.val()
+        if (!val || !val.trim()) {
           $(".hf-pl").attr("disabled", true).addClass("hf-pl--disabled")
         } else {
           $(".hf-pl").attr("disabled", false).removeClass("hf-pl--disabled")
